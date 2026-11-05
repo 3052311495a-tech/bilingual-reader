@@ -295,8 +295,29 @@
     const s = document.createElement(site ? 'span' : 'div');
     s.className = 'itt-tr itt-slot' + (site ? ' itt-x' : '');
     s.setAttribute('translate', 'no');
-    try { s.style.setProperty('--itt-fs', getComputedStyle(block).fontSize); } catch (e) {}
+    try { copyTypography(block, s); } catch (e) {}
     return s;
+  }
+
+  /* 中文无衬线字体链：mac 苹方 → Windows 雅黑 → Linux 思源/Noto */
+  const CJK_SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei"';
+  const GENERIC_FAMILY = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|math|emoji|fangsong)$/i;
+
+  /* 译文沿用原文的字体/字号/颜色/字重（X 的字体写在推文元素自己身上，插在外面的译文继承不到，
+     会退回浏览器默认衬线体 → 中文变宋体）。原字体链里去掉 serif 这类通用族，
+     否则中文会在通用族那一步匹配到宋体，轮不到后面的苹方/雅黑 */
+  function copyTypography(block, slot) {
+    const cs = getComputedStyle(block);
+    const fams = cs.fontFamily.split(',').map(f => f.trim()).filter(f => f && !GENERIC_FAMILY.test(f.replace(/["']/g, '')));
+    const fs = parseFloat(cs.fontSize) || 16;
+    const lh = parseFloat(cs.lineHeight);
+    const st = slot.style;
+    st.setProperty('--itt-ff', [...fams, CJK_SANS, 'sans-serif'].join(', '));
+    st.setProperty('--itt-fs', cs.fontSize);
+    st.setProperty('--itt-color', cs.color);
+    st.setProperty('--itt-fw', cs.fontWeight);
+    // 中文比英文需要更松一点的行距
+    st.setProperty('--itt-lh', Math.max(Number.isFinite(lh) ? lh : 0, fs * 1.6) + 'px');
   }
 
   /* 在 ref 处插入元素；切开的文本节点记下来，清理时拼回去（React 还拿着前半截的引用） */

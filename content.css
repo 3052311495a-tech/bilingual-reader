@@ -2,10 +2,18 @@
 .itt-tr {
   display: block;
   margin: 0.4em 0 0.9em;
-  color: inherit;
-  font-size: 1em;
-  line-height: inherit;
   white-space: pre-wrap;
+  /* 字体、字号、颜色、字重都抄原文那一段（content.js 的 copyTypography 写进这些变量），
+     中文统一落到苹方/雅黑这类无衬线体，不会变宋体，也不会一大一小 */
+  font-family: var(--itt-ff, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif) !important;
+  font-size: var(--itt-fs, inherit) !important;
+  font-weight: var(--itt-fw, inherit) !important;
+  font-style: normal !important;
+  color: var(--itt-color, inherit) !important;
+  line-height: var(--itt-lh, 1.65) !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* 还没轮到翻译的占位：先藏起来 */
@@ -16,9 +24,7 @@
 html.itt-mode-target .itt-tr.itt-same { display: block !important; }
 
 .itt-tr.itt-pending {
-  color: #94a3b8;
-  font-style: italic;
-  font-size: 0.9em;
+  color: #94a3b8 !important;
 }
 
 /* X 推文 / 长文：正文是 pre-wrap，插在 span 里，用块级显示 */
@@ -42,8 +48,6 @@ html.itt-mode-target [data-itt-inner="1"] {
 }
 html.itt-mode-target [data-itt-inner="1"] img { display: none !important; }
 html.itt-mode-target .itt-tr {
-  font-size: var(--itt-fs, 16px) !important;
-  line-height: 1.65 !important;
   margin: 0.2em 0 0.8em;
 }
 
