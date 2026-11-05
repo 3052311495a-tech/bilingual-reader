@@ -250,8 +250,10 @@
           if (d === 'none') continue;
           if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt, node: c }); continue; }
           if (d === 'contents') { walk(c, inInline); continue; }
-          // 代码块不翻：整块跳过，前后算段落边界（译文插在代码块前面，不会插进代码里）
-          if (tag === 'PRE' || (tag === 'CODE' && !isInlineDisplay(d)) || /code-?block/i.test(c.getAttribute('data-testid') || '')) {
+          // 代码块不翻：整块跳过，前后算段落边界（译文插在代码块前面，不会插进代码里）。
+          // 长文里嵌入的推文卡片（日期、浏览量、用户名都是界面文字）也整块跳过；卡片正文是 tweetText，会单独翻
+          if (tag === 'PRE' || (tag === 'CODE' && !isInlineDisplay(d)) || /code-?block/i.test(c.getAttribute('data-testid') || '') ||
+              /^(simpleTweet|tweet)$/.test(c.getAttribute('data-testid') || '') || c.getAttribute('role') === 'article') {
             toks.push({ t: 'brk', ref: { before: c } });
             toks.push({ t: 'brk', ref: { after: c } });
             continue;
@@ -390,9 +392,11 @@
     }
   }
 
+  /* 原文长度签名：去掉块里所有译文（包括嵌在里面的别的块的译文，比如长文里引用的推文），
+     否则嵌入推文的译文一出来，外层长文就会被误判成「原文变了」而反复重翻 */
   function blockSig(block) {
     let n = (block.textContent || '').length;
-    for (const s of block._ittSlots || []) if (block.contains(s)) n -= (s.textContent || '').length;
+    block.querySelectorAll('.itt-tr').forEach(s => { n -= (s.textContent || '').length; });
     return n;
   }
 
