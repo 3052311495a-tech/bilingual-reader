@@ -6,7 +6,7 @@
   const DEFAULTS = {
     apiKey: '', model: 'gemini-2.5-flash', targetLang: '简体中文',
     autoTranslate: true, highlightWords: true, enableSelection: true,
-    enableHover: true, hoverMode: 'ctrl', hoverDelay: 180,
+    enableHover: true, hoverMode: 'ctrl', hoverDelay: 120,
     hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
     showBall: true, ballTop: 0.42,
     displayMode: 'bilingual'
@@ -101,6 +101,8 @@
     card: null,
     cardOpen: false,
     hover: { timer: null, word: '', x: 0, y: 0, hideTimer: null },
+    mouse: { x: -1, y: -1 },
+    lookupSeq: 0,
     hoverActive: false,
     dragging: false,
     lastErr: null,
@@ -711,7 +713,14 @@
         button:hover{background:#f3f4f6}
         button.primary{background:#2563eb;border-color:#2563eb;color:#fff}
         button.primary:hover{background:#1d4ed8}
-        .loading{color:#6b7280;font-size:13px}
+        .loading{color:#6b7280;font-size:13px;display:flex;align-items:center;gap:8px}
+        .loading b{color:#111827;font-size:15px;font-weight:650}
+        .spin{width:12px;height:12px;border-radius:50%;border:2px solid #cbd5e1;border-top-color:#2563eb;animation:sp .7s linear infinite;flex:none}
+        @keyframes sp{to{transform:rotate(360deg)}}
+        .secs{margin-left:auto;font-variant-numeric:tabular-nums;color:#9ca3af;font-size:12px}
+        .exload{margin-top:8px;color:#9ca3af;font-size:12.5px;display:flex;align-items:center;gap:6px}
+        .exload .spin{width:9px;height:9px;border-width:1.5px}
+        @media (prefers-color-scheme: dark){.loading b{color:#f9fafb}}
         .deep{margin-top:9px;padding-top:9px;border-top:1px dashed rgba(15,23,42,.12);white-space:pre-wrap;color:#1f2937;font-size:13px;display:none}
         .srcline{margin-top:8px;padding-top:8px;border-top:1px dashed rgba(15,23,42,.12);color:#6b7280;font-size:12.5px}
         @media (prefers-color-scheme: dark){
@@ -754,13 +763,24 @@
   function hideCard() {
     if (S.card) S.card.hidden = true;
     S.overCard = false;
+    S.lookupSeq++;                 // 卡片收了，还在路上的查词结果作废，别再弹出来
+    clearInterval(loadTick);
     S.cardOpen = false;
     cardData = null;
   }
 
-  function showLoading(x, y) {
+  /* 加载态：立刻告诉用户「在查哪个词、已经等了多久」，不然分不清是没触发还是在等模型 */
+  let loadTick = null;
+  function showLoading(x, y, label) {
     ensureCard();
-    S.card.innerHTML = '<div class="loading">查询中…</div>';
+    clearInterval(loadTick);
+    const t0 = performance.now();
+    S.card.innerHTML = `<div class="loading"><span class="spin"></span>${label ? `<b>${esc(label)}</b>` : ''}<span>查询中…</span><span class="secs">0.0s</span></div>`;
+    const secs = S.card.querySelector('.secs');
+    loadTick = setInterval(() => {
+      if (!secs.isConnected) { clearInterval(loadTick); return; }
+      secs.textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+    }, 100);
     placeCard(x, y);
   }
 
@@ -775,8 +795,7 @@
         <span class="close" data-act="close">×</span>
       </div>
       <div class="mean">${esc([d.pos, d.meaning].filter(Boolean).join(' '))}</div>
-      ${d.example ? `<div class="ex">${esc(d.example)}</div>` : ''}
-      ${d.exampleZh ? `<div class="exzh">${esc(d.exampleZh)}</div>` : ''}
+      <div class="exbox">${exampleHtml(d)}</div>
       ${d.ctx ? `<div class="srcline">原文语境：${esc(d.ctx)}</div>` : ''}
       <div class="deep"></div>
       <div class="foot">
@@ -786,6 +805,12 @@
         <button data-act="deep">AI 细讲</button>
       </div>`;
     placeCard(x, y);
+  }
+
+  function exampleHtml(d) {
+    if (d.example) return `<div class="ex">${esc(d.example)}</div>${d.exampleZh ? `<div class="exzh">${esc(d.exampleZh)}</div>` : ''}`;
+    if (d._exPending) return '<div class="exload"><span class="spin"></span>例句生成中…</div>';
+    return '';
   }
 
   function renderSentence(src, dst, x, y) {
@@ -911,21 +936,51 @@
     const cached = S.knowCache.get(key);
     if (cached) { renderWord(Object.assign({ ctx: contextAt(word, x, y) }, cached), x, y); return; }
 
-    showLoading(x, y);
+    const seq = ++S.lookupSeq;
+    showLoading(x, y, word);
+    const exP = sendBg({ type: 'wordExample', text: word });
     const res = await sendBg({ type: 'word', text: word });
+    if (seq !== S.lookupSeq) return;               // 期间又查了别的词，这个结果作废
+    clearInterval(loadTick);
     if (!res || !res.ok) {
       if (S.card) S.card.innerHTML = `<div class="row"><span class="w" style="font-size:14px">查询失败</span><span class="close" data-act="close">×</span></div><div class="mean" style="font-size:12.5px;color:#b91c1c">${esc((res && res.error) || '未知错误')}</div>`;
       return;
     }
-    S.knowCache.set(key, res.data);
-    renderWord(Object.assign({}, res.data, { ctx: contextAt(word, x, y) }), x, y);
+    const data = Object.assign({}, res.data, { ctx: contextAt(word, x, y) });
+    if (!data.example) data._exPending = true;
+    renderWord(data, x, y);
+    if (!data._exPending) { S.knowCache.set(key, res.data); return; }
+
+    const ex = await exP;
+    const exData = (ex && ex.ok && ex.data) || {};
+    delete data._exPending;
+    Object.assign(data, exData);
+    const full = Object.assign({}, res.data, exData);
+    S.knowCache.set(key, full);
+    // 卡片还停在这个词上就把例句补进去
+    if (cardData && cardData.data === data && S.card) {
+      const box = S.card.querySelector('.exbox');
+      if (box) box.innerHTML = exampleHtml(data);
+    }
+    // 例句回来前就点了收藏的，把例句补进生词本
+    const saved = S.words.get(String(full.word || word).toLowerCase());
+    if (saved && !saved.example && exData.example) {
+      saved.example = exData.example; saved.exampleZh = exData.exampleZh || '';
+      const { wordbook } = await chrome.storage.local.get('wordbook');
+      const wb = wordbook || {};
+      const k = String(full.word || word).toLowerCase();
+      if (wb[k]) { wb[k].example = exData.example; wb[k].exampleZh = exData.exampleZh || ''; await chrome.storage.local.set({ wordbook: wb }); }
+    }
   }
 
   async function showSentence(src, x, y) {
     const key = 's:' + src;
     if (S.trCache.has(src)) { renderSentence(src, S.trCache.get(src), x, y); return; }
-    showLoading(x, y);
+    const seq = ++S.lookupSeq;
+    showLoading(x, y, '');
     const res = await sendBg({ type: 'translate', texts: [src] });
+    if (seq !== S.lookupSeq) return;
+    clearInterval(loadTick);
     if (res && res.ok && res.results && res.results[src]) {
       S.trCache.set(src, res.results[src]);
       renderSentence(src, res.results[src], x, y);
@@ -1135,14 +1190,45 @@
     return { mode, held: mode === 'ctrl' ? !!(e.ctrlKey || e.metaKey) : !!e.altKey };
   }
 
+  /* 对指针下的词发起查词。immediate=true 时不等停留（刚按下键） */
+  function hoverLookup(info, immediate) {
+    clearHideTimer();
+    if (info.word === S.hover.word && (S.hover.timer || S.hoverActive)) return;
+    cancelHover();
+    S.hover.word = info.word;
+    S.hover.x = info.x; S.hover.y = info.y;
+    S.hover.ax = S.mouse.x; S.hover.ay = S.mouse.y;   // 触发时指针位置，松键后移出 30px 才收
+    const fire = () => {
+      S.hover.timer = null;
+      S.hoverActive = true;
+      showWord(info.word, S.hover.x, S.hover.y);
+    };
+    if (immediate) fire();
+    else S.hover.timer = setTimeout(fire, Math.max(60, Number(S.settings.hoverDelay) || 120));
+  }
+
+  /* 按下修饰键的那一刻就查指针下的词——以前只在鼠标移动时才触发，按住不动就「没反应」 */
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat || !S.settings || !S.settings.enableHover) return;
+    const mode = S.settings.hoverMode === 'alt' ? 'alt' : (S.settings.hoverMode === 'off' ? 'off' : 'ctrl');
+    const hit = mode === 'ctrl' ? (e.key === 'Control' || e.key === 'Meta') : (mode === 'alt' && e.key === 'Alt');
+    if (!hit || S.mouse.x < 0 || S.overCard) return;
+    const info = wordAtPoint(S.mouse.x, S.mouse.y);
+    if (info) hoverLookup(info, true);
+  }, true);
+
   document.addEventListener('mousemove', (e) => {
+    S.mouse.x = e.clientX; S.mouse.y = e.clientY;
     if (!S.settings || !S.settings.enableHover) return;
     const gate = hoverGate(e);
     if (!gate) return;
     if (S.overCard) { clearHideTimer(); return; }
     if (!gate.held) {
-      cancelHover();
-      if (S.hoverActive) scheduleHoverHide(450);
+      if (S.hover.timer) cancelHover();
+      if (S.hoverActive) {
+        const dx = e.clientX - (S.hover.ax || 0), dy = e.clientY - (S.hover.ay || 0);
+        if (dx * dx + dy * dy > 900) scheduleHoverHide(450);
+      }
       return;
     }
     if (e.target && e.target.id === 'itt-ball-host') return;
@@ -1154,24 +1240,16 @@
       if (S.hoverActive) scheduleHoverHide(380);
       return;
     }
-    clearHideTimer();
-    if (info.word === S.hover.word) return;
-    cancelHover();
-    S.hover.word = info.word;
-    S.hover.x = info.x; S.hover.y = info.y;
-    S.hover.timer = setTimeout(() => {
-      S.hoverActive = true;
-      showWord(info.word, S.hover.x, S.hover.y);
-    }, Math.max(80, Number(S.settings.hoverDelay) || 180));
+    hoverLookup(info, false);
   }, { passive: true });
 
   /* 拖选文字时不弹卡 */
   document.addEventListener('mousedown', () => { S.dragging = false; }, true);
 
   document.addEventListener('keyup', (e) => {
+    // 松开键不收卡片（慢的时候结果还在路上）；鼠标移开才收，见 mousemove
     if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Meta') {
-      cancelHover();
-      if (S.hoverActive) scheduleHoverHide(450);
+      if (S.hover.timer) cancelHover();
     }
   });
   window.addEventListener('blur', () => {

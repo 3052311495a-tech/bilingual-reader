@@ -8,7 +8,7 @@ const DEFAULTS = {
   dsKey: '', dsBase: 'https://api.deepseek.com', dsModel: 'deepseek-chat',
   targetLang: '简体中文',
   autoTranslate: true, highlightWords: true, enableSelection: true,
-  enableHover: true, hoverMode: 'ctrl', hoverDelay: 180,
+  enableHover: true, hoverMode: 'ctrl', hoverDelay: 120,
   hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
   displayMode: 'bilingual'
 };

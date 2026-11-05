@@ -19,7 +19,7 @@ const DEFAULTS = {
   enableSelection: true,
   enableHover: true,
   hoverMode: 'ctrl',        // ctrl | alt | off
-  hoverDelay: 180,
+  hoverDelay: 120,
   hlStyle: 'underline',     // underline | underline-bg | bg
   hlToday: true, hlNew: true, hlKnown: true,
   displayMode: 'bilingual' // bilingual | target
@@ -89,6 +89,14 @@ async function geminiCall(prompt, opts, s) {
     generationConfig: { temperature }
   };
   if (json) body.generationConfig.responseMimeType = 'application/json';
+  // pro 系列关不掉思考，思考 token 也算进上限，别给它设上限免得截断
+  if (opts.maxTokens && opts.thinking !== 'on' && !/pro/i.test(s.model)) body.generationConfig.maxOutputTokens = opts.maxTokens;
+  // gemini-2.5 系列默认开「思考」，查词/翻译时每次要多想好几秒：flash 系列可以直接关（budget 0），pro 最低 128。
+  // 2.0 系列不认这个字段，别发
+  if (opts.thinking !== 'on') {
+    if (/2\.5-flash/i.test(s.model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    else if (/2\.5-pro/i.test(s.model)) body.generationConfig.thinkingConfig = { thinkingBudget: 128 };
+  }
 
   let res;
   try {
@@ -135,6 +143,7 @@ async function openaiCall(prompt, opts, s) {
     body.temperature = temperature;
     if (json) body.response_format = { type: 'json_object' };
   }
+  if (opts.maxTokens) body.max_tokens = opts.maxTokens;
   // DeepSeek V4 系列默认开思考模式：翻译/查词要关掉才快，只提问时才开。
   // 仅对官方域名发送，免得严格的中转站因未知字段返回 400。
   if (/deepseek\.com/i.test(base)) {
@@ -296,6 +305,10 @@ async function translate(texts, lang) {
   return out;
 }
 
+/* 查词拆成两个并行的小请求：
+   - core：拼写/音标/词性/释义，输出只有几十个 token，最快回来，卡片先显示它
+   - extra：例句 + 例句翻译，回来后补进卡片
+   两部分各自缓存，查过的词下次瞬间出 */
 async function lookupWord(text) {
   const s = await getSettings();
   const cache = await getCache();
@@ -303,10 +316,9 @@ async function lookupWord(text) {
   if (cache[key]) return cache[key].v;
 
   const raw = await llm(
-    `你是面向中文母语者的英语学习词典。针对下面的英文单词或短语，输出一个 JSON 对象：` +
-    `{"word":"规范拼写(原形)","phonetic":"美式 IPA 音标，用斜杠包起来","pos":"词性缩写，如 n./v./adj./phr.","meaning":"精炼中文释义，不超过30字，多义用；分隔","example":"一个自然地道、6-16词的英文例句","exampleZh":"该例句的中文翻译"}。` +
-    `只输出 JSON，不要解释。\n\n${text}`,
-    { json: true, thinking: 'off' }
+    `英汉词典。给出这个英文单词或短语的 JSON：` +
+    `{"word":"原形","phonetic":"美式IPA，带斜杠","pos":"词性缩写如 n./v./adj./phr.","meaning":"中文释义，≤30字，多义用；分隔"}。只输出 JSON。\n\n${text}`,
+    { json: true, thinking: 'off', temperature: 0, maxTokens: 120 }
   );
 
   const obj = extractJson(raw);
@@ -315,12 +327,31 @@ async function lookupWord(text) {
     word: obj.word || text,
     phonetic: obj.phonetic || '',
     pos: obj.pos || '',
-    meaning: obj.meaning || obj.definition || '',
-    example: obj.example || '',
-    exampleZh: obj.exampleZh || ''
+    meaning: obj.meaning || obj.definition || ''
   };
+  if (!data.meaning) throw new Error('没查到释义');
   cache[key] = { v: data, t: Date.now() };
   persistCacheSoon();
+  return data;
+}
+
+async function lookupExample(text) {
+  const s = await getSettings();
+  const cache = await getCache();
+  const key = cachePrefix(s) + ':wx:' + String(text).toLowerCase();
+  if (cache[key]) return cache[key].v;
+
+  const raw = await llm(
+    `给英文单词或短语「${text}」写一个自然地道、6-16 词的英文例句，并翻译成中文。` +
+    `只输出 JSON：{"example":"英文例句","exampleZh":"中文翻译"}`,
+    { json: true, thinking: 'off', temperature: 0.3, maxTokens: 120 }
+  );
+  const obj = extractJson(raw) || {};
+  const data = { example: obj.example || '', exampleZh: obj.exampleZh || '' };
+  if (data.example) {
+    cache[key] = { v: data, t: Date.now() };
+    persistCacheSoon();
+  }
   return data;
 }
 
@@ -386,6 +417,8 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
         respond({ ok: true, results });
       } else if (msg.type === 'word') {
         respond({ ok: true, data: await lookupWord(msg.text) });
+      } else if (msg.type === 'wordExample') {
+        respond({ ok: true, data: await lookupExample(msg.text) });
       } else if (msg.type === 'explain') {
         respond({ ok: true, text: await explainWord(msg.text, msg.meaning) });
       } else if (msg.type === 'test') {

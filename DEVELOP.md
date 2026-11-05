@@ -31,7 +31,7 @@
 - `provider: 'openai'` → `{base}/chat/completions`（DeepSeek 走这条路，任何 OpenAI 兼容中转站也能用）
 
 `thinking` 只对 `deepseek.com` 域名发送（`{"thinking":{"type":"disabled"}}`），避免严格中转站因未知字段 400。
-**翻译/查词关思考，AI 细讲开思考** —— 这是延迟的关键，别改回去。
+**翻译/查词关思考，AI 细讲开思考** —— 这是延迟的关键，别改回去。Gemini 2.5 flash 默认也会思考，`geminiCall` 里用 `thinkingConfig.thinkingBudget: 0` 关掉（2.0 系列不认这个字段，只对 2.5 发）。
 
 ### 2. 逐段翻译（v0.3 起，参考沉浸式翻译）
 
@@ -87,7 +87,8 @@ const SITE_ADAPTERS = [
 | type | 方向 | 说明 |
 | --- | --- | --- |
 | `translate` | content → bg | `{texts: []}` → `{results: {原文: 译文}}` |
-| `word` | content → bg | 单词 → `{word, phonetic, pos, meaning, example, exampleZh}` |
+| `word` | content → bg | 单词 → `{word, phonetic, pos, meaning}`（只要释义，输出短、回得快，卡片先显示它） |
+| `wordExample` | content → bg | 单词 → `{example, exampleZh}`，和 `word` 并行发，回来后补进卡片 |
 | `explain` | content → bg | 词根/搭配/近义/自测题（开思考模式） |
 | `outline` | outline.js → bg | `{headings, excerpt}` → `[{level,title}]` |
 | `bench` | popup → bg | 两家各打一次小请求，返回毫秒数 |
