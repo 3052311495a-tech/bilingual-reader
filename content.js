@@ -219,9 +219,12 @@
   }
   const isInlineDisplay = (d) => d.startsWith('inline') || d === 'contents' || d.startsWith('ruby');
 
+  /* inInline：已经在一个行内级容器（inline / inline-flex / inline-block…）里面了。
+     X 的 @提及 包在 inline-flex 的 div 里，浏览器会把弹性容器的子元素强制算成 block，
+     只看子元素自己的 display 就会误判成段落边界，把一句话从 @ 处切断 */
   function tokenize(root, textNewlines) {
     const toks = [];
-    (function walk(node) {
+    (function walk(node, inInline) {
       for (let c = node.firstChild; c; c = c.nextSibling) {
         if (c.nodeType === 3) {
           const v = c.nodeValue || '';
@@ -243,11 +246,13 @@
           const d = displayOf(c);
           if (d === 'none') continue;
           if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt, node: c }); continue; }
-          walk(c);
-          if (!isInlineDisplay(d)) toks.push({ t: 'blk', el: c });
+          if (d === 'contents') { walk(c, inInline); continue; }
+          const inl = d.startsWith('inline') || d.startsWith('ruby');
+          walk(c, inInline || inl);
+          if (!inl && !inInline) toks.push({ t: 'blk', el: c });
         }
       }
-    })(root);
+    })(root, false);
     return toks;
   }
 
@@ -331,7 +336,12 @@
   function copyTypography(textEl, root, slot) {
     // 字号、字体看文字本身；字重、颜色看它所在的段落块（第一个词是粗体或链接时，整段译文别跟着变粗变蓝）
     let blk = textEl;
-    while (blk && blk !== root && isInlineDisplay(displayOf(blk))) blk = blk.parentElement;
+    while (blk && blk !== root) {
+      // 自己是块级、父元素也不是行内级容器，才算「段落块」（@提及 里被强制 block 的 span 不算）
+      const pd = blk.parentElement ? displayOf(blk.parentElement) : 'block';
+      if (!isInlineDisplay(displayOf(blk)) && !pd.startsWith('inline')) break;
+      blk = blk.parentElement;
+    }
     blk = blk || root;
     const ct = getComputedStyle(textEl), cb = getComputedStyle(blk);
     const fams = cb.fontFamily.split(',').map(f => f.trim()).filter(f => f && !GENERIC_FAMILY.test(f.replace(/["']/g, '')));
