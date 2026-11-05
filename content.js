@@ -202,9 +202,13 @@
   }
 
   /* ---------- 把一个块切成段落 ----------
-     token：{t:'x', s} 文字；{t:'nl', ref} 软换行（单个 \n 或 <br>）；{t:'blk', ref} 块级边界
-     ref 是「在这里插入译文」的位置：{after: Node} 或 {text: TextNode, off} */
-  const BLOCK_TAGS = /^(DIV|P|LI|UL|OL|H[1-6]|BLOCKQUOTE|SECTION|ARTICLE|PRE|TABLE|TR|DL|DD|DT|FIGURE|FIGCAPTION|HEADER|FOOTER|HR)$/;
+     token：{t:'x', s, node} 文字；{t:'nl', ref} 软换行（单个 \n 或 <br>）；{t:'blk', el} 块级元素结束
+     块级与否看实际渲染的 display，不看标签名：X 会把链接包在 display:inline 的 div 里，
+     按标签算会把一句话从链接处切成两段 */
+  function displayOf(el) {
+    try { return getComputedStyle(el).display; } catch (e) { return 'inline'; }
+  }
+  const isInlineDisplay = (d) => d.startsWith('inline') || d === 'contents' || d.startsWith('ruby');
 
   function tokenize(root, textNewlines) {
     const toks = [];
@@ -212,69 +216,77 @@
       for (let c = node.firstChild; c; c = c.nextSibling) {
         if (c.nodeType === 3) {
           const v = c.nodeValue || '';
-          if (!textNewlines || v.indexOf('\n') < 0) { toks.push({ t: 'x', s: v }); continue; }
+          if (!textNewlines || v.indexOf('\n') < 0) { toks.push({ t: 'x', s: v, node: c }); continue; }
           let last = 0;
           for (let i = 0; i < v.length; i++) {
             if (v[i] !== '\n') continue;
-            if (i > last) toks.push({ t: 'x', s: v.slice(last, i) });
+            if (i > last) toks.push({ t: 'x', s: v.slice(last, i), node: c });
             toks.push({ t: 'nl', ref: { text: c, off: i + 1 } });
             last = i + 1;
           }
-          if (last < v.length) toks.push({ t: 'x', s: v.slice(last) });
+          if (last < v.length) toks.push({ t: 'x', s: v.slice(last), node: c });
         } else if (c.nodeType === 1) {
           if (c.classList.contains('itt-tr')) continue;
           const tag = c.tagName;
           if (tag === 'BR') { toks.push({ t: 'nl', ref: { after: c } }); continue; }
           if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|BUTTON)$/i.test(tag)) continue;
           if (c.getAttribute('aria-hidden') === 'true') continue;
-          if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt }); continue; }
+          const d = displayOf(c);
+          if (d === 'none') continue;
+          if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt, node: c }); continue; }
           walk(c);
-          if (BLOCK_TAGS.test(tag)) toks.push({ t: 'blk', ref: { after: c } });
+          if (!isInlineDisplay(d)) toks.push({ t: 'blk', el: c });
         }
       }
     })(root);
     return toks;
   }
 
-  /* → [{text, before}]；before = 这一段开头前的插入点（第一段为 null） */
+  /* → [{text, end, src}]
+     end = 这一段译文的插入点：
+       - 段后跟着块级边界 → 插进「包住这段的最内层块」的末尾（{append: el}），
+         译文就在段落自己的盒子里，间距跟原文段落一致，不会被外层 margin 撑开
+       - 段后只是空行 / <br><br> → 插在第一个换行后面（{ref}），空行留在译文和下一段之间
+       - 段后什么都没有（块里最后一段）→ null，交给 insertTranslationEl
+     src = 段落第一个文字所在的元素，译文的字号字体照它抄 */
   function paragraphs(root, textNewlines) {
     const toks = tokenize(root, textNewlines);
     const paras = [];
-    // 一串换行里：有块级边界就插在最外层块后面；纯 \n / <br> 就插在第一个换行后面，
-    // 这样译文紧贴原文，剩下的空行留在译文和下一段之间（跟沉浸式翻译一样）
-    let cur = '', start = null, runFirst = null, runLast = null, nlRun = 0, hard = false;
-    const norm = (s) => s.split('\n').map(x => x.replace(/[ \t \r\f\v]+/g, ' ').trim()).filter(Boolean).join('\n');
-    const close = () => {
+    let cur = '', src = null, runFirstNl = null, runFirstBlk = null, nlRun = 0, hard = false;
+    const norm = (s) => s.split('\n').map(x => x.replace(/[ \t\u00a0\r\f\v]+/g, ' ').trim()).filter(Boolean).join('\n');
+    const close = (end) => {
       const t = norm(cur);
-      if (t && /[\p{L}]/u.test(t)) paras.push({ text: t, before: start });
-      cur = ''; start = null;
+      if (t && /[\p{L}]/u.test(t)) paras.push({ text: t, end, src });
+      cur = ''; src = null;
     };
+    const runEnd = () => runFirstBlk ? { append: runFirstBlk } : (runFirstNl ? { ref: runFirstNl } : null);
     for (const k of toks) {
       if (k.t === 'x') {
         if (!k.s.trim()) { if (cur) cur += k.s; continue; }
         if (nlRun) {
-          if (hard || nlRun >= 2) close();
+          if (hard || nlRun >= 2) close(runEnd());
           else if (cur) cur += '\n';
         }
-        if (!cur.trim()) start = !runLast ? null : (hard ? { ref: runLast, tight: false } : { ref: runFirst, tight: true });
-        nlRun = 0; hard = false;
+        if (!cur.trim()) src = k.node ? k.node.parentElement : null;
+        nlRun = 0; hard = false; runFirstNl = null; runFirstBlk = null;
         cur += k.s;
       } else {
-        if (!nlRun) runFirst = k.ref;
-        runLast = k.ref;
+        if (k.t === 'blk') { hard = true; if (!runFirstBlk) runFirstBlk = k.el; }
+        else if (!runFirstNl && !runFirstBlk) runFirstNl = k.ref;
         nlRun++;
-        if (k.t === 'blk') hard = true;
       }
     }
-    close();
+    // 最后一段：后面紧跟块级边界（X 长文的最后一个段落 div）也插进那个块里
+    close(runFirstBlk ? { append: runFirstBlk } : null);
     return paras;
   }
 
-  /* 段落 → 翻译单元：短推文整条一个单元；长文逐段，过短的相邻段合并 */
+  /* 段落 → 翻译单元：短推文整条一个单元；长文逐段，过短的相邻段合并。
+     单元的插入点 = 组里最后一段的 end，字体来源 = 组里第一段的 src */
   function groupParas(paras) {
     const total = paras.reduce((n, p) => n + p.text.length, 0);
     if (paras.length <= 1 || total < LONG_BLOCK) {
-      return [{ text: paras.map(p => p.text).join('\n'), before: null }];
+      return paras.length ? [{ text: paras.map(p => p.text).join('\n'), end: null, src: paras[0].src }] : [];
     }
     const groups = [];
     let g = null;
@@ -283,19 +295,20 @@
       if (g && g.same === same && g.lastLen < SHORT_PARA && p.text.length < SHORT_PARA && g.text.length + p.text.length < MERGE_LIMIT) {
         g.text += '\n' + p.text;
         g.lastLen = p.text.length;
+        g.end = p.end;
         continue;
       }
-      g = { text: p.text, before: p.before, lastLen: p.text.length, same };
+      g = { text: p.text, end: p.end, src: p.src, lastLen: p.text.length, same };
       groups.push(g);
     }
     return groups;
   }
 
-  function makeSlot(block, site) {
+  function makeSlot(block, site, src) {
     const s = document.createElement(site ? 'span' : 'div');
     s.className = 'itt-tr itt-slot' + (site ? ' itt-x' : '');
     s.setAttribute('translate', 'no');
-    try { copyTypography(block, s); } catch (e) {}
+    try { copyTypography(src && block.contains(src) ? src : block, block, s); } catch (e) {}
     return s;
   }
 
@@ -306,22 +319,27 @@
   /* 译文沿用原文的字体/字号/颜色/字重（X 的字体写在推文元素自己身上，插在外面的译文继承不到，
      会退回浏览器默认衬线体 → 中文变宋体）。原字体链里去掉 serif 这类通用族，
      否则中文会在通用族那一步匹配到宋体，轮不到后面的苹方/雅黑 */
-  function copyTypography(block, slot) {
-    const cs = getComputedStyle(block);
-    const fams = cs.fontFamily.split(',').map(f => f.trim()).filter(f => f && !GENERIC_FAMILY.test(f.replace(/["']/g, '')));
-    const fs = parseFloat(cs.fontSize) || 16;
-    const lh = parseFloat(cs.lineHeight);
+  function copyTypography(textEl, root, slot) {
+    // 字号、字体看文字本身；字重、颜色看它所在的段落块（第一个词是粗体或链接时，整段译文别跟着变粗变蓝）
+    let blk = textEl;
+    while (blk && blk !== root && isInlineDisplay(displayOf(blk))) blk = blk.parentElement;
+    blk = blk || root;
+    const ct = getComputedStyle(textEl), cb = getComputedStyle(blk);
+    const fams = cb.fontFamily.split(',').map(f => f.trim()).filter(f => f && !GENERIC_FAMILY.test(f.replace(/["']/g, '')));
+    const fs = parseFloat(ct.fontSize) || 16;
+    const lh = parseFloat(cb.lineHeight);
     const st = slot.style;
     st.setProperty('--itt-ff', [...fams, CJK_SANS, 'sans-serif'].join(', '));
-    st.setProperty('--itt-fs', cs.fontSize);
-    st.setProperty('--itt-color', cs.color);
-    st.setProperty('--itt-fw', cs.fontWeight);
-    // 中文比英文需要更松一点的行距
-    st.setProperty('--itt-lh', Math.max(Number.isFinite(lh) ? lh : 0, fs * 1.6) + 'px');
+    st.setProperty('--itt-fs', fs + 'px');
+    st.setProperty('--itt-color', cb.color);
+    st.setProperty('--itt-fw', cb.fontWeight);
+    // 中文比英文需要更松一点的行距；原文行距本来就大（标题）就按原文
+    st.setProperty('--itt-lh', Math.max(Number.isFinite(lh) ? Math.min(lh, fs * 2) : 0, fs * 1.6) + 'px');
   }
 
   /* 在 ref 处插入元素；切开的文本节点记下来，清理时拼回去（React 还拿着前半截的引用） */
   function insertAtRef(ref, el) {
+    if (ref.append) { ref.append.appendChild(el); return; }
     if (ref.after) { ref.after.after(el); return; }
     const tn = ref.text;
     if (ref.off >= tn.length) { tn.after(el); return; }
@@ -352,16 +370,14 @@
     const groups = groupParas(paragraphs(block, site));
     if (!groups.length || !groups.some(g => !isTargetLang(g.text))) return [];
 
-    const slots = groups.map(() => makeSlot(block, site));
+    const slots = groups.map(g => makeSlot(block, site, g.src));
     // 从后往前插：同一个文本节点被切多次时，前面的偏移量不受影响
     for (let i = groups.length - 1; i >= 0; i--) {
-      if (i === groups.length - 1) insertTranslationEl(block, slots[i]);
-      else {
-        const b = groups[i + 1].before;
-        insertAtRef(b.ref, slots[i]);
-        if (b.tight) slots[i].classList.add('itt-tight');
-        block.dataset.ittInner = '1';
-      }
+      const end = groups[i].end;
+      if (!end) { insertTranslationEl(block, slots[i]); continue; }
+      insertAtRef(end.append ? end : end.ref, slots[i]);
+      slots[i].classList.add('itt-tight');
+      block.dataset.ittInner = '1';
     }
     block._ittSlots = slots;
     block.dataset.itt = '1';

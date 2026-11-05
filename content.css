@@ -31,9 +31,10 @@ html.itt-mode-target .itt-tr.itt-same { display: block !important; }
 .itt-tr.itt-x {
   margin: 0.25em 0 0.85em;
 }
-/* 插在段落中间的译文：后面原文自带空行，不再加下边距 */
+/* 插在段落里面的译文：段落自己有下边距/空行，译文只留一点上边距，紧贴原文 */
+.itt-tr.itt-tight,
 .itt-tr.itt-x.itt-tight {
-  margin: 0.15em 0 0;
+  margin: 0.2em 0 0;
 }
 
 /* 纯译模式：译文插在元素后面的，直接藏掉原文元素 */
