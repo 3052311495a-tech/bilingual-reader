@@ -940,7 +940,7 @@
       <div class="deep"></div>
       <div class="foot">
         <button data-act="say">🔊 朗读</button>
-        <button data-act="save" class="${isSaved ? '' : 'primary'}">${isSaved ? '★ 已收藏' : '☆ 收藏'}</button>
+        <button data-act="save" class="${isSaved ? '' : 'primary'}" title="已收藏的再点一下取消收藏">${isSaved ? '★ 已收藏' : '☆ 收藏'}</button>
         <button data-act="known">${(S.words.get((d.word || '').toLowerCase()) || {}).state === 'known' ? '✓ 已学' : '标记已学'}</button>
         <button data-act="deep">AI 细讲</button>
       </div>`;
@@ -1005,9 +1005,19 @@
     }
     if (act === 'save') {
       if (cardData.kind !== 'word') return;
-      await saveWord(cardData.data);
-      btn.textContent = '★ 已收藏';
-      btn.classList.remove('primary');
+      // 已收藏的再点一下 = 取消收藏
+      const key = String(cardData.data.word || '').toLowerCase();
+      if (S.words.has(key)) {
+        await unsaveWord(key);
+        btn.textContent = '☆ 收藏';
+        btn.classList.add('primary');
+        const kb = S.card.querySelector('[data-act="known"]');
+        if (kb) kb.textContent = '标记已学';
+      } else {
+        await saveWord(cardData.data);
+        btn.textContent = '★ 已收藏';
+        btn.classList.remove('primary');
+      }
       return;
     }
     if (act === 'deep') {
@@ -1127,6 +1137,18 @@
     } else {
       if (S.card) S.card.innerHTML = `<div class="row"><span class="w" style="font-size:14px">翻译失败</span><span class="close" data-act="close">×</span></div><div class="mean" style="font-size:12.5px;color:#b91c1c">${esc((res && res.error) || '未知错误')}</div>`;
     }
+  }
+
+  async function unsaveWord(key) {
+    const { wordbook } = await chrome.storage.local.get('wordbook');
+    const wb = wordbook || {};
+    const word = (wb[key] && wb[key].word) || key;
+    delete wb[key];
+    await chrome.storage.local.set({ wordbook: wb });
+    S.words = new Map(Object.entries(wb));
+    toast('已取消收藏 · ' + word);
+    if (S.settings && S.settings.highlightWords) highlightWords();
+    remarkAllSlots();
   }
 
   async function saveWord(d) {

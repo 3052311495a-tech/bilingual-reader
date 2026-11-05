@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "我的双语阅读 · Gemini",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "自己的沉浸式翻译：段落双语对照、Ctrl 悬停查词、生词高亮，一键导出 NotebookLM 学习包。",
   "permissions": [
     "storage",
