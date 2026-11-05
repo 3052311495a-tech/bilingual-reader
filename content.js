@@ -218,13 +218,16 @@
     try { return getComputedStyle(el).display; } catch (e) { return 'inline'; }
   }
   const isInlineDisplay = (d) => d.startsWith('inline') || d === 'contents' || d.startsWith('ruby');
+  /* 「原子」行内盒：inline-block / inline-flex / inline-grid / inline-table。里面的东西整体是一个行内块，
+     块级子元素也不会另起一行。普通 inline 不算——块级元素放在普通 inline 里照样独占一行 */
+  const isAtomicInline = (d) => d.startsWith('inline-') || d.startsWith('ruby');
 
-  /* inInline：已经在一个行内级容器（inline / inline-flex / inline-block…）里面了。
+  /* inInline：已经在一个原子行内盒（inline-flex / inline-block…）里面了。
      X 的 @提及 包在 inline-flex 的 div 里，浏览器会把弹性容器的子元素强制算成 block，
      只看子元素自己的 display 就会误判成段落边界，把一句话从 @ 处切断 */
   function tokenize(root, textNewlines) {
     const toks = [];
-    (function walk(node, inInline) {
+    (function walk(node, inInline) {   // inInline：是否在原子行内盒里
       for (let c = node.firstChild; c; c = c.nextSibling) {
         if (c.nodeType === 3) {
           const v = c.nodeValue || '';
@@ -247,9 +250,11 @@
           if (d === 'none') continue;
           if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt, node: c }); continue; }
           if (d === 'contents') { walk(c, inInline); continue; }
-          const inl = d.startsWith('inline') || d.startsWith('ruby');
-          walk(c, inInline || inl);
-          if (!inl && !inInline) toks.push({ t: 'blk', el: c });
+          // 标题前后永远是段落边界，不管包在什么容器里（@提及 里不可能有标题）
+          const heading = /^H[1-6]$/.test(tag) || c.getAttribute('role') === 'heading';
+          if (heading) toks.push({ t: 'brk', ref: { before: c } });
+          walk(c, inInline || isAtomicInline(d));
+          if ((!isInlineDisplay(d) && !inInline) || heading) toks.push({ t: 'blk', el: c });
         }
       }
     })(root, false);
@@ -266,14 +271,14 @@
   function paragraphs(root, textNewlines) {
     const toks = tokenize(root, textNewlines);
     const paras = [];
-    let cur = '', src = null, runFirstNl = null, runFirstBlk = null, nlRun = 0, hard = false;
+    let cur = '', src = null, runFirstNl = null, runFirstBlk = null, runFirstBrk = null, nlRun = 0, hard = false;
     const norm = (s) => s.split('\n').map(x => x.replace(/[ \t\u00a0\r\f\v]+/g, ' ').trim()).filter(Boolean).join('\n');
     const close = (end) => {
       const t = norm(cur);
       if (t && /[\p{L}]/u.test(t)) paras.push({ text: t, end, src });
       cur = ''; src = null;
     };
-    const runEnd = () => runFirstBlk ? { append: runFirstBlk } : (runFirstNl ? { ref: runFirstNl } : null);
+    const runEnd = () => runFirstBlk ? { append: runFirstBlk } : runFirstBrk ? { ref: runFirstBrk } : (runFirstNl ? { ref: runFirstNl } : null);
     for (const k of toks) {
       if (k.t === 'x') {
         if (!k.s.trim()) { if (cur) cur += k.s; continue; }
@@ -282,10 +287,11 @@
           else if (cur) cur += '\n';
         }
         if (!cur.trim()) src = k.node ? k.node.parentElement : null;
-        nlRun = 0; hard = false; runFirstNl = null; runFirstBlk = null;
+        nlRun = 0; hard = false; runFirstNl = null; runFirstBlk = null; runFirstBrk = null;
         cur += k.s;
       } else {
         if (k.t === 'blk') { hard = true; if (!runFirstBlk) runFirstBlk = k.el; }
+        else if (k.t === 'brk') { hard = true; if (!runFirstBrk && !runFirstBlk) runFirstBrk = k.ref; }
         else if (!runFirstNl && !runFirstBlk) runFirstNl = k.ref;
         nlRun++;
       }
@@ -339,7 +345,7 @@
     while (blk && blk !== root) {
       // 自己是块级、父元素也不是行内级容器，才算「段落块」（@提及 里被强制 block 的 span 不算）
       const pd = blk.parentElement ? displayOf(blk.parentElement) : 'block';
-      if (!isInlineDisplay(displayOf(blk)) && !pd.startsWith('inline')) break;
+      if (!isInlineDisplay(displayOf(blk)) && !isAtomicInline(pd)) break;
       blk = blk.parentElement;
     }
     blk = blk || root;
@@ -360,6 +366,7 @@
   function insertAtRef(ref, el) {
     if (ref.append) { ref.append.appendChild(el); return; }
     if (ref.after) { ref.after.after(el); return; }
+    if (ref.before) { ref.before.before(el); return; }
     const tn = ref.text;
     if (ref.off >= tn.length) { tn.after(el); return; }
     const rest = tn.splitText(ref.off);
