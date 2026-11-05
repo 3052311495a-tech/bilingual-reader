@@ -74,7 +74,7 @@ const SITE_ADAPTERS = [
 ];
 ```
 
-加新站点就照这个格式加一条。`sel` 里的容器整块交给分段逻辑，容器里面的 `<p>/<li>` 不再单独翻（`insideSiteBlock()`）。
+加新站点就照这个格式加一条。`only: true` 表示这个站点只翻 `sel` 里的正文容器，页面上别的 `h1/h2/li` 都当界面文字（X 顶栏的「Post」就是 h2）。`sel` 里的容器整块交给分段逻辑，容器里面的 `<p>/<li>` 不再单独翻（`insideSiteBlock()`）。
 
 ### 3.1 纯译文模式
 
@@ -88,6 +88,7 @@ const SITE_ADAPTERS = [
 | --- | --- | --- |
 | `translate` | content → bg | `{texts: []}` → `{results: {原文: 译文}}` |
 | `word` | content → bg | 单词 → `{word, phonetic, pos, meaning}`（只要释义，输出短、回得快，卡片先显示它） |
+| `align` | content → bg | `{src, dst, words}` → `{map: {词: 译文里对应片段}}`。生词本释义在译文里匹配不上时才调用，按译文哈希缓存 |
 | `wordExample` | content → bg | 单词 → `{example, exampleZh}`，和 `word` 并行发，回来后补进卡片 |
 | `explain` | content → bg | 词根/搭配/近义/自测题（开思考模式） |
 | `outline` | outline.js → bg | `{headings, excerpt}` → `[{level,title}]` |

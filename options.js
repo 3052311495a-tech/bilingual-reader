@@ -9,7 +9,7 @@ const DEFAULTS = {
   targetLang: '简体中文',
   autoTranslate: true, highlightWords: true, enableSelection: true,
   enableHover: true, hoverMode: 'ctrl', hoverDelay: 120,
-  hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
+  hlStyle: 'yellow', hlToday: true, hlNew: true, hlKnown: true,
   displayMode: 'bilingual'
 };
 
@@ -86,7 +86,7 @@ function fillForm() {
 
   $('#hoverMode').value = (S.hoverMode === 'auto' ? 'ctrl' : S.hoverMode) || 'ctrl';
   $('#hoverDelay').value = S.hoverDelay || 180;
-  $('#hlStyle').value = S.hlStyle || 'underline';
+  $('#hlStyle').value = S.hlStyle || 'yellow';
   $('#hlToday').checked = S.hlToday !== false;
   $('#hlNew').checked = S.hlNew !== false;
   $('#hlKnown').checked = S.hlKnown !== false;

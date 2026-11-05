@@ -20,7 +20,7 @@ const DEFAULTS = {
   enableHover: true,
   hoverMode: 'ctrl',        // ctrl | alt | off
   hoverDelay: 120,
-  hlStyle: 'underline',     // underline | underline-bg | bg
+  hlStyle: 'yellow',        // yellow | underline | underline-bg | bg
   hlToday: true, hlNew: true, hlKnown: true,
   displayMode: 'bilingual' // bilingual | target
 };
@@ -335,6 +335,50 @@ async function lookupWord(text) {
   return data;
 }
 
+/* 词对齐：英文原文里的生词，在中文译文里对应哪几个字。只在用生词本释义匹配不上时才调用 */
+function hashStr(t) {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+async function alignWords(src, dst, words) {
+  const s = await getSettings();
+  const cache = await getCache();
+  const base = cachePrefix(s) + ':al:' + hashStr(dst) + ':';
+  const map = {};
+  const todo = [];
+  for (const w of words) {
+    const k = base + w;
+    if (cache[k]) map[w] = cache[k].v;
+    else todo.push(w);
+  }
+  if (!todo.length) return map;
+
+  const raw = await llm(
+    `英文原文：${src}\n\n中文译文：${dst}\n\n` +
+    `对下面每个英文词（可能以变形出现在原文里），找出它在中文译文里对应的那几个字。` +
+    `要求：必须是译文里原样出现的连续片段，尽量短（通常 2-6 个字）；译文里没有对应就给空字符串。` +
+    `只输出 JSON：{"items":[{"w":"英文词","zh":"译文片段"}]}\n\n词：${todo.join(', ')}`,
+    { json: true, thinking: 'off', temperature: 0, maxTokens: 60 + todo.length * 30 }
+  );
+  const obj = extractJson(raw) || {};
+  const items = Array.isArray(obj) ? obj : (obj.items || []);
+  for (const it of items) {
+    if (!it || !it.w) continue;
+    const w = String(it.w).toLowerCase();
+    const zh = String(it.zh || '').trim();
+    if (todo.indexOf(w) < 0) continue;
+    map[w] = zh && dst.indexOf(zh) >= 0 ? zh : '';
+  }
+  for (const w of todo) {
+    if (!(w in map)) map[w] = '';
+    cache[base + w] = { v: map[w], t: Date.now() };
+  }
+  persistCacheSoon();
+  return map;
+}
+
 async function lookupExample(text) {
   const s = await getSettings();
   const cache = await getCache();
@@ -417,6 +461,8 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
         respond({ ok: true, results });
       } else if (msg.type === 'word') {
         respond({ ok: true, data: await lookupWord(msg.text) });
+      } else if (msg.type === 'align') {
+        respond({ ok: true, map: await alignWords(msg.src || '', msg.dst || '', msg.words || []) });
       } else if (msg.type === 'wordExample') {
         respond({ ok: true, data: await lookupExample(msg.text) });
       } else if (msg.type === 'explain') {
@@ -457,12 +503,19 @@ chrome.commands.onCommand.addListener(async (cmd) => {
   } catch (e) { /* 忽略 */ }
 });
 
-/* v0.3.1：悬停查词默认键从 ⌥ 改成 Ctrl。已存过设置的老用户迁移一次，之后改回 ⌥ 不会被覆盖 */
+/* 默认值改过的设置，老用户升级时迁移一次；之后用户自己改回去不会被覆盖
+   v0.3.1：悬停查词默认键 ⌥ → Ctrl
+   v0.3.3：生词高亮默认样式 下划线 → 浅黄色块 */
 chrome.runtime.onInstalled.addListener(async () => {
-  const { settings, hoverKeyMigrated } = await chrome.storage.local.get(['settings', 'hoverKeyMigrated']);
-  if (hoverKeyMigrated) return;
-  if (settings && (!settings.hoverMode || settings.hoverMode === 'alt')) {
-    await chrome.storage.local.set({ settings: Object.assign({}, settings, { hoverMode: 'ctrl' }) });
+  const st = await chrome.storage.local.get(['settings', 'hoverKeyMigrated', 'hlYellowMigrated']);
+  const settings = Object.assign({}, st.settings || {});
+  let changed = false;
+  if (!st.hoverKeyMigrated && st.settings && (!settings.hoverMode || settings.hoverMode === 'alt')) {
+    settings.hoverMode = 'ctrl'; changed = true;
   }
-  await chrome.storage.local.set({ hoverKeyMigrated: true });
+  if (!st.hlYellowMigrated && st.settings && (!settings.hlStyle || settings.hlStyle === 'underline')) {
+    settings.hlStyle = 'yellow'; changed = true;
+  }
+  if (changed) await chrome.storage.local.set({ settings });
+  await chrome.storage.local.set({ hoverKeyMigrated: true, hlYellowMigrated: true });
 });

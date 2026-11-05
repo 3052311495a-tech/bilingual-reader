@@ -67,7 +67,16 @@ mark.itt-hl.itt-cat-today { border-bottom-color: #14b8a6; }
 mark.itt-hl.itt-cat-new   { border-bottom-color: #f59e0b; }
 mark.itt-hl.itt-cat-known { border-bottom-color: #22c55e; opacity: 0.75; }
 
-/* 粗下划线（默认） */
+/* 浅黄色块（默认）：收藏的生词 = 不懂，英文和译文里对应的中文都用浅黄底标出来 */
+html.itt-hlstyle-yellow mark.itt-hl { border-bottom: 0; border-radius: 3px; padding: 0 2px; }
+html.itt-hlstyle-yellow mark.itt-hl.itt-cat-today,
+html.itt-hlstyle-yellow mark.itt-hl.itt-cat-new { background: rgba(253, 224, 71, 0.42); }
+html.itt-hlstyle-yellow mark.itt-hl.itt-cat-known { background: transparent; border-bottom: 1px dashed rgba(34, 197, 94, 0.7); border-radius: 0; padding: 0; }
+
+/* 译文里的中文高亮：不加 padding，免得中文字距被撑开 */
+mark.itt-hl.itt-hl-zh { padding: 0; cursor: pointer; }
+
+/* 粗下划线 */
 html.itt-hlstyle-line mark.itt-hl { border-bottom-width: 2px; }
 
 /* 线 + 底 */
@@ -86,4 +95,6 @@ mark.itt-hl:hover { background: rgba(250, 204, 21, 0.55) !important; }
 
 @media (prefers-color-scheme: dark) {
   mark.itt-hl:hover { background: rgba(250, 204, 21, 0.35) !important; }
+  html.itt-hlstyle-yellow mark.itt-hl.itt-cat-today,
+  html.itt-hlstyle-yellow mark.itt-hl.itt-cat-new { background: rgba(250, 204, 21, 0.28); }
 }

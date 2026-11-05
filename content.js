@@ -7,7 +7,7 @@
     apiKey: '', model: 'gemini-2.5-flash', targetLang: '简体中文',
     autoTranslate: true, highlightWords: true, enableSelection: true,
     enableHover: true, hoverMode: 'ctrl', hoverDelay: 120,
-    hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
+    hlStyle: 'yellow', hlToday: true, hlNew: true, hlKnown: true,
     showBall: true, ballTop: 0.42,
     displayMode: 'bilingual'
   };
@@ -15,12 +15,14 @@
 
   /* 站点适配：有些站点的正文不是语义标签，得按 data-testid 抓
      sel  = 正文容器（整块交给分段逻辑，内部按段落插译文）
-     skip = 这个站点上不翻译的区域（侧栏、导航之类） */
+     skip = 这个站点上不翻译的区域（侧栏、导航之类）
+     only = true 时只翻 sel 里的正文容器，页面上别的 h1/h2/li 一律当界面文字（X 顶栏的「Post」「Explore」就是 h2） */
   const SITE_ADAPTERS = [
     {
       host: /(^|\.)(x|twitter)\.com$/i,
       sel: '[data-testid="tweetText"], [data-testid="twitterArticleRichTextView"], [data-testid="UserDescription"]',
-      skip: '[data-testid="sidebarColumn"], [data-testid="trend"], [role="tablist"], [data-testid="DMDrawer"]'
+      skip: '[data-testid="sidebarColumn"], [data-testid="trend"], [role="tablist"], [data-testid="DMDrawer"]',
+      only: true
     }
   ];
 
@@ -33,7 +35,9 @@
   const activeAdapters = () => SITE_ADAPTERS.filter(a => a.host.test(location.hostname));
 
   function blockSelector() {
-    const extra = activeAdapters().map(a => a.sel);
+    const ads = activeAdapters();
+    if (ads.some(a => a.only)) return ads.map(a => a.sel).join(', ');
+    const extra = ads.map(a => a.sel);
     return extra.length ? BLOCK_SEL + ', ' + extra.join(', ') : BLOCK_SEL;
   }
 
@@ -91,6 +95,7 @@
     mode: 'bilingual',
     queue: [],
     blocks: new Set(),
+    alignCache: new Map(),
     timer: null,
     inflight: 0,
     trCache: new Map(),
@@ -143,11 +148,12 @@
       applyHlStyle();
       if (S.settings.showBall === false) { if (ballEl) { ballEl.host.remove(); ballEl = null; } }
       else ensureBall();
-      if (S.on) highlightWords();
+      if (S.on) { highlightWords(); remarkAllSlots(); }
     }
     if (changes.wordbook) {
       S.words = new Map(Object.entries(changes.wordbook.newValue || {}));
       if (S.settings && S.settings.highlightWords) highlightWords();
+      remarkAllSlots();
     }
   });
 
@@ -171,6 +177,7 @@
     // header/footer/aside 只在正文区之外才算「外壳」（文章内的 <header><h1> 要翻）
     if (!el.closest(MAIN_SEL) && el.closest('header, footer, aside, [role="complementary"]')) return false;
     const site = isSiteBlock(el);
+    if (!site && activeAdapters().some(a => a.only)) return false;
     if (!site && insideSiteBlock(el)) return false;
     if (!site && el.querySelector('p, li, blockquote, table, ul, ol')) return false;
     const t = textOf(el);
@@ -393,6 +400,7 @@
         slots[i].classList.remove('itt-slot');
         slots[i].classList.add('itt-same');
       } else {
+        slots[i]._ittSrc = g.text;
         units.push({ block, slot: slots[i], text: g.text });
       }
     });
@@ -515,7 +523,9 @@
   function fillSlot(slot, text) {
     clearTimeout(slot._ittTimer);
     slot.textContent = text;
+    slot._ittDst = text;
     slot.classList.remove('itt-slot', 'itt-pending');
+    if (S.words.size) markSlot(slot);
   }
 
   function translatedCount() {
@@ -608,17 +618,130 @@
 
   function applyHlStyle() {
     const el = document.documentElement;
-    const style = (S.settings && S.settings.hlStyle) || 'underline';
+    const style = (S.settings && S.settings.hlStyle) || 'yellow';
+    el.classList.toggle('itt-hlstyle-yellow', style === 'yellow');
     el.classList.toggle('itt-hlstyle-bg', style === 'bg');
     el.classList.toggle('itt-hlstyle-line', style === 'underline');
     el.classList.toggle('itt-hlstyle-linebg', style === 'underline-bg');
   }
 
   function unwrapHighlights() {
-    document.querySelectorAll('mark.itt-hl').forEach(m => {
+    document.querySelectorAll('mark.itt-hl:not(.itt-hl-zh)').forEach(m => {
       const t = document.createTextNode(m.textContent);
       m.replaceWith(t);
     });
+  }
+
+  const SUFFIX = '(?:s|es|ed|d|ing|ies|ied)?';
+  function wordRegex(keys) {
+    return new RegExp('(?<![A-Za-z])(?:' + keys.map(escapeRe).join('|') + ')' + SUFFIX + '(?![A-Za-z])', 'gi');
+  }
+
+  /* 匹配到的词形 → 生词本里的原形 */
+  function keyOfMatch(w) {
+    const k = String(w).toLowerCase();
+    if (S.words.has(k)) return k;
+    const tries = [[/ies$/, 'y'], [/ied$/, 'y'], [/ing$/, ''], [/ing$/, 'e'], [/ed$/, ''], [/ed$/, 'e'], [/d$/, ''], [/es$/, ''], [/s$/, '']];
+    for (const [re, rep] of tries) {
+      if (!re.test(k)) continue;
+      const base = k.replace(re, rep);
+      if (S.words.has(base)) return base;
+    }
+    return k;
+  }
+
+  /* 一段英文里出现了哪些「不懂」的词（今日 / 生词；已学的不算） */
+  function unknownWordsIn(text) {
+    const keys = [...S.words.keys()].filter(w => w && w.length > 1 && /^[a-z]/i.test(w));
+    if (!keys.length || !text) return [];
+    let re;
+    try { re = wordRegex(keys.sort((a, b) => b.length - a.length)); } catch (e) { return []; }
+    const out = new Map();
+    let m;
+    while ((m = re.exec(text))) {
+      const k = keyOfMatch(m[0]);
+      const cat = categoryOf(k);
+      if (cat && cat !== 'known' && !out.has(k)) out.set(k, cat);
+    }
+    return [...out].map(([key, cat]) => ({ key, cat }));
+  }
+
+  /* ---------- 译文里给生词对应的中文加高亮 ----------
+     先用生词本里存的释义去译文里找（免费、瞬间）；找不到再让模型指出译文里对应的片段（很小的请求，有缓存） */
+  function meaningCandidates(meaning) {
+    return String(meaning || '')
+      .replace(/[（(][^）)]*[）)]/g, ' ')
+      .replace(/\b(?:n|v|vt|vi|adj|adv|prep|conj|pron|phr|abbr)\./gi, ' ')
+      .split(/[；;，,、\/|\s]+|或/)
+      .map(t => t.replace(/^(?:使|被|把)|的$|地$/g, '').trim())
+      .filter(t => t.length >= 2 && /\p{Script=Han}/u.test(t))
+      .sort((a, b) => b.length - a.length);
+  }
+
+  function findZh(key, dst) {
+    const ck = key + '\u0001' + dst;
+    if (S.alignCache.has(ck)) return S.alignCache.get(ck);
+    const w = S.words.get(key) || {};
+    for (const c of meaningCandidates(w.meaning)) if (dst.indexOf(c) >= 0) return c;
+    return undefined;   // 未知，要问模型
+  }
+
+  function renderSlotMarks(slot) {
+    const dst = slot._ittDst;
+    if (!dst) return;
+    const spans = [];
+    for (const { key, cat } of slot._ittWords || []) {
+      const zh = S.alignCache.get(key + '\u0001' + dst) || findZh(key, dst);
+      if (zh) spans.push({ zh, key, cat });
+    }
+    if (!spans.length) {
+      if (slot.querySelector('mark')) slot.textContent = dst;
+      return;
+    }
+    // 找出所有出现位置，按位置排序、去重叠
+    const hits = [];
+    for (const sp of spans) {
+      let i = dst.indexOf(sp.zh);
+      while (i >= 0) { hits.push({ i, j: i + sp.zh.length, sp }); i = dst.indexOf(sp.zh, i + sp.zh.length); }
+    }
+    hits.sort((a, b) => a.i - b.i || b.j - a.j);
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const h of hits) {
+      if (h.i < last) continue;
+      if (h.i > last) frag.appendChild(document.createTextNode(dst.slice(last, h.i)));
+      const mk = document.createElement('mark');
+      mk.className = 'itt-hl itt-hl-zh itt-cat-' + h.sp.cat;
+      mk.dataset.w = h.sp.key;
+      mk.textContent = dst.slice(h.i, h.j);
+      frag.appendChild(mk);
+      last = h.j;
+    }
+    if (last < dst.length) frag.appendChild(document.createTextNode(dst.slice(last)));
+    slot.textContent = '';
+    slot.appendChild(frag);
+  }
+
+  async function markSlot(slot) {
+    if (!slot || !slot._ittDst || !slot.isConnected) return;
+    if (!S.settings || !S.settings.highlightWords) { slot._ittWords = []; renderSlotMarks(slot); return; }
+    slot._ittWords = unknownWordsIn(slot._ittSrc || '');
+    renderSlotMarks(slot);
+    const dst = slot._ittDst;
+    const missing = slot._ittWords.map(w => w.key).filter(k => findZh(k, dst) === undefined);
+    if (!missing.length) return;
+    const res = await sendBg({ type: 'align', src: slot._ittSrc, dst, words: missing });
+    const map = (res && res.ok && res.map) || {};
+    for (const k of missing) {
+      const zh = map[k];
+      S.alignCache.set(k + '\u0001' + dst, zh && dst.indexOf(zh) >= 0 ? zh : null);
+    }
+    if (slot.isConnected && slot._ittDst === dst) renderSlotMarks(slot);
+  }
+
+  /* 生词本变了：页面上已经出来的译文全部重新标一遍 */
+  function remarkAllSlots() {
+    for (const b of S.blocks) for (const sl of b._ittSlots || []) if (sl._ittDst) markSlot(sl);
   }
 
   function highlightWords() {
@@ -630,7 +753,7 @@
 
     let re;
     try {
-      re = new RegExp('(?<![A-Za-z])(?:' + keys.map(escapeRe).join('|') + ')(?![A-Za-z])', 'gi');
+      re = wordRegex(keys);
     } catch (e) { return; }
 
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
@@ -659,7 +782,7 @@
       while ((m = re.exec(text))) {
         if (!m[0]) { re.lastIndex++; continue; }
         if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-        const key = m[0].toLowerCase();
+        const key = keyOfMatch(m[0]);
         const cat = categoryOf(key);
         if (!cat) {
           frag.appendChild(document.createTextNode(m[0]));
