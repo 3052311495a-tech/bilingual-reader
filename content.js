@@ -250,6 +250,12 @@
           if (d === 'none') continue;
           if (tag === 'IMG') { if (c.alt && c.alt.length <= 4) toks.push({ t: 'x', s: c.alt, node: c }); continue; }
           if (d === 'contents') { walk(c, inInline); continue; }
+          // 代码块不翻：整块跳过，前后算段落边界（译文插在代码块前面，不会插进代码里）
+          if (tag === 'PRE' || (tag === 'CODE' && !isInlineDisplay(d)) || /code-?block/i.test(c.getAttribute('data-testid') || '')) {
+            toks.push({ t: 'brk', ref: { before: c } });
+            toks.push({ t: 'brk', ref: { after: c } });
+            continue;
+          }
           // 标题前后永远是段落边界，不管包在什么容器里（@提及 里不可能有标题）
           const heading = /^H[1-6]$/.test(tag) || c.getAttribute('role') === 'heading';
           if (heading) toks.push({ t: 'brk', ref: { before: c } });
