@@ -6,7 +6,7 @@
   const DEFAULTS = {
     apiKey: '', model: 'gemini-2.5-flash', targetLang: '简体中文',
     autoTranslate: true, highlightWords: true, enableSelection: true,
-    enableHover: true, hoverMode: 'alt', hoverDelay: 180,
+    enableHover: true, hoverMode: 'ctrl', hoverDelay: 180,
     hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
     showBall: true, ballTop: 0.42,
     displayMode: 'bilingual'
@@ -732,6 +732,9 @@
     S.card.addEventListener('click', onCardClick);
     S.card.addEventListener('mousedown', (e) => e.stopPropagation());
     S.card.addEventListener('mouseup', (e) => e.stopPropagation());
+    // 鼠标在卡片上就别收，好让人点「收藏」等按钮
+    S.card.addEventListener('mouseenter', () => { S.overCard = true; clearHideTimer(); });
+    S.card.addEventListener('mouseleave', () => { S.overCard = false; if (S.hoverActive) scheduleHoverHide(300); });
   }
 
   let cardData = null;
@@ -750,6 +753,7 @@
 
   function hideCard() {
     if (S.card) S.card.hidden = true;
+    S.overCard = false;
     S.cardOpen = false;
     cardData = null;
   }
@@ -1115,9 +1119,18 @@
     if (S.hover.hideTimer) { clearTimeout(S.hover.hideTimer); S.hover.hideTimer = null; }
   }
 
-  /* 悬停查词必须按修饰键：Option(⌥) 或 Ctrl/⌘；不做「裸鼠标悬停」 */
+  /* 卡片延迟收起：松开按键或移开单词后留一小会儿，鼠标移进卡片就不收 */
+  function scheduleHoverHide(ms) {
+    if (S.hover.hideTimer) return;
+    S.hover.hideTimer = setTimeout(() => {
+      S.hover.hideTimer = null;
+      if (S.hoverActive && !S.overCard) { S.hoverActive = false; hideCard(); }
+    }, ms);
+  }
+
+  /* 悬停查词必须按修饰键：默认 Ctrl（Mac 上 ⌘ 也行），可改 Option(⌥)；不做「裸鼠标悬停」 */
   function hoverGate(e) {
-    const mode = S.settings.hoverMode === 'ctrl' ? 'ctrl' : (S.settings.hoverMode === 'off' ? 'off' : 'alt');
+    const mode = S.settings.hoverMode === 'alt' ? 'alt' : (S.settings.hoverMode === 'off' ? 'off' : 'ctrl');
     if (mode === 'off') return null;
     return { mode, held: mode === 'ctrl' ? !!(e.ctrlKey || e.metaKey) : !!e.altKey };
   }
@@ -1126,9 +1139,10 @@
     if (!S.settings || !S.settings.enableHover) return;
     const gate = hoverGate(e);
     if (!gate) return;
+    if (S.overCard) { clearHideTimer(); return; }
     if (!gate.held) {
       cancelHover();
-      if (S.hoverActive) { hideCard(); S.hoverActive = false; }
+      if (S.hoverActive) scheduleHoverHide(450);
       return;
     }
     if (e.target && e.target.id === 'itt-ball-host') return;
@@ -1137,12 +1151,7 @@
 
     const info = wordAtPoint(e.clientX, e.clientY);
     if (!info) {
-      if (S.hoverActive && !S.hover.hideTimer) {
-        S.hover.hideTimer = setTimeout(() => {
-          S.hover.hideTimer = null;
-          if (S.hoverActive) { S.hoverActive = false; hideCard(); }
-        }, 380);
-      }
+      if (S.hoverActive) scheduleHoverHide(380);
       return;
     }
     clearHideTimer();
@@ -1153,7 +1162,7 @@
     S.hover.timer = setTimeout(() => {
       S.hoverActive = true;
       showWord(info.word, S.hover.x, S.hover.y);
-    }, 180);
+    }, Math.max(80, Number(S.settings.hoverDelay) || 180));
   }, { passive: true });
 
   /* 拖选文字时不弹卡 */
@@ -1162,7 +1171,7 @@
   document.addEventListener('keyup', (e) => {
     if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Meta') {
       cancelHover();
-      if (S.hoverActive) { hideCard(); S.hoverActive = false; }
+      if (S.hoverActive) scheduleHoverHide(450);
     }
   });
   window.addEventListener('blur', () => {

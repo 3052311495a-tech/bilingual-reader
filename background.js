@@ -18,7 +18,7 @@ const DEFAULTS = {
   highlightWords: true,
   enableSelection: true,
   enableHover: true,
-  hoverMode: 'alt',         // alt | ctrl | off
+  hoverMode: 'ctrl',        // ctrl | alt | off
   hoverDelay: 180,
   hlStyle: 'underline',     // underline | underline-bg | bg
   hlToday: true, hlNew: true, hlKnown: true,
@@ -422,4 +422,14 @@ chrome.commands.onCommand.addListener(async (cmd) => {
       void chrome.runtime.lastError;
     });
   } catch (e) { /* 忽略 */ }
+});
+
+/* v0.3.1：悬停查词默认键从 ⌥ 改成 Ctrl。已存过设置的老用户迁移一次，之后改回 ⌥ 不会被覆盖 */
+chrome.runtime.onInstalled.addListener(async () => {
+  const { settings, hoverKeyMigrated } = await chrome.storage.local.get(['settings', 'hoverKeyMigrated']);
+  if (hoverKeyMigrated) return;
+  if (settings && (!settings.hoverMode || settings.hoverMode === 'alt')) {
+    await chrome.storage.local.set({ settings: Object.assign({}, settings, { hoverMode: 'ctrl' }) });
+  }
+  await chrome.storage.local.set({ hoverKeyMigrated: true });
 });

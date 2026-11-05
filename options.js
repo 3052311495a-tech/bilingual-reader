@@ -8,7 +8,7 @@ const DEFAULTS = {
   dsKey: '', dsBase: 'https://api.deepseek.com', dsModel: 'deepseek-chat',
   targetLang: '简体中文',
   autoTranslate: true, highlightWords: true, enableSelection: true,
-  enableHover: true, hoverMode: 'alt', hoverDelay: 180,
+  enableHover: true, hoverMode: 'ctrl', hoverDelay: 180,
   hlStyle: 'underline', hlToday: true, hlNew: true, hlKnown: true,
   displayMode: 'bilingual'
 };
@@ -84,7 +84,7 @@ function fillForm() {
   if (S.displayMode === 'target') $('#modeTarget').checked = true;
   else $('#modeBilingual').checked = true;
 
-  $('#hoverMode').value = (S.hoverMode === 'auto' ? 'alt' : S.hoverMode) || 'alt';
+  $('#hoverMode').value = (S.hoverMode === 'auto' ? 'ctrl' : S.hoverMode) || 'ctrl';
   $('#hoverDelay').value = S.hoverDelay || 180;
   $('#hlStyle').value = S.hlStyle || 'underline';
   $('#hlToday').checked = S.hlToday !== false;
