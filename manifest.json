@@ -1,0 +1,72 @@
+{
+  "manifest_version": 3,
+  "name": "我的双语阅读 · Gemini",
+  "version": "0.3.0",
+  "description": "自己的沉浸式翻译：段落双语对照、Ctrl 悬停查词、生词高亮，一键导出 NotebookLM 学习包。",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "我的双语阅读",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js",
+        "outline.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "toggle-translate": {
+      "suggested_key": {
+        "default": "Alt+T"
+      },
+      "description": "开/关整页翻译"
+    },
+    "toggle-mode": {
+      "suggested_key": {
+        "default": "Alt+Y"
+      },
+      "description": "切换 双语对照 / 纯译文"
+    },
+    "toggle-outline": {
+      "suggested_key": {
+        "default": "Alt+O"
+      },
+      "description": "打开/关闭智能大纲"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,84 @@
+/* 译文块：参考沉浸式翻译——跟原文同字号同颜色，不加边框，紧跟在对应段落后面 */
+.itt-tr {
+  display: block;
+  margin: 0.4em 0 0.9em;
+  color: inherit;
+  font-size: 1em;
+  line-height: inherit;
+  white-space: pre-wrap;
+}
+
+/* 还没轮到翻译的占位：先藏起来 */
+.itt-tr.itt-slot { display: none !important; }
+
+/* 本来就是中文的段落：双语模式不显示（原文就在上面），纯译文模式才露出来 */
+.itt-tr.itt-same { display: none !important; }
+html.itt-mode-target .itt-tr.itt-same { display: block !important; }
+
+.itt-tr.itt-pending {
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+/* X 推文 / 长文：正文是 pre-wrap，插在 span 里，用块级显示 */
+.itt-tr.itt-x {
+  margin: 0.25em 0 0.85em;
+}
+/* 插在段落中间的译文：后面原文自带空行，不再加下边距 */
+.itt-tr.itt-x.itt-tight {
+  margin: 0.15em 0 0;
+}
+
+/* 纯译模式：译文插在元素后面的，直接藏掉原文元素 */
+html.itt-mode-target [data-itt="1"]:not([data-itt-inner="1"]) {
+  display: none !important;
+}
+/* 译文插在元素里面的（长文逐段、li/td）：把原文缩成 0 字号，只留译文 */
+html.itt-mode-target [data-itt-inner="1"] {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  white-space: normal !important;
+}
+html.itt-mode-target [data-itt-inner="1"] img { display: none !important; }
+html.itt-mode-target .itt-tr {
+  font-size: var(--itt-fs, 16px) !important;
+  line-height: 1.65 !important;
+  margin: 0.2em 0 0.8em;
+}
+
+/* 生词高亮：按类别上色，三种标记形态 */
+mark.itt-hl {
+  background: transparent;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+  border-bottom: 2px solid transparent;
+}
+
+/* 类别色：今日 / 生词 / 已学 */
+mark.itt-hl.itt-cat-today { border-bottom-color: #14b8a6; }
+mark.itt-hl.itt-cat-new   { border-bottom-color: #f59e0b; }
+mark.itt-hl.itt-cat-known { border-bottom-color: #22c55e; opacity: 0.75; }
+
+/* 粗下划线（默认） */
+html.itt-hlstyle-line mark.itt-hl { border-bottom-width: 2px; }
+
+/* 线 + 底 */
+html.itt-hlstyle-linebg mark.itt-hl { border-bottom-width: 2px; }
+html.itt-hlstyle-linebg mark.itt-hl.itt-cat-today { background: rgba(20, 184, 166, 0.14); }
+html.itt-hlstyle-linebg mark.itt-hl.itt-cat-new   { background: rgba(245, 158, 11, 0.16); }
+html.itt-hlstyle-linebg mark.itt-hl.itt-cat-known { background: rgba(34, 197, 94, 0.14); }
+
+/* 纯背景色 */
+html.itt-hlstyle-bg mark.itt-hl { border-bottom: 0; }
+html.itt-hlstyle-bg mark.itt-hl.itt-cat-today { background: rgba(20, 184, 166, 0.28); }
+html.itt-hlstyle-bg mark.itt-hl.itt-cat-new   { background: rgba(245, 158, 11, 0.30); }
+html.itt-hlstyle-bg mark.itt-hl.itt-cat-known { background: rgba(34, 197, 94, 0.26); }
+
+mark.itt-hl:hover { background: rgba(250, 204, 21, 0.55) !important; }
+
+@media (prefers-color-scheme: dark) {
+  mark.itt-hl:hover { background: rgba(250, 204, 21, 0.35) !important; }
+}

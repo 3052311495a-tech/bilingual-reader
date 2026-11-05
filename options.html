@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>我的双语阅读 · 设置</title>
+<link rel="stylesheet" href="options.css">
+</head>
+<body>
+<header>
+  <h1>我的双语阅读 <span class="tag">Gemini / DeepSeek</span></h1>
+  <nav>
+    <button class="tab active" data-tab="settings">设置</button>
+    <button class="tab" data-tab="words">生词本 <span id="wordCount" class="pill">0</span></button>
+    <button class="tab" data-tab="export">导出 / NotebookLM</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ 设置 ============ -->
+  <section id="tab-settings" class="panel active">
+    <div class="field">
+      <label for="provider">翻译服务</label>
+      <div class="row">
+        <select id="provider">
+          <option value="gemini">Gemini 官方接口（generativelanguage）</option>
+          <option value="openai">OpenAI 兼容（DeepSeek / 中转站 / 自建）</option>
+        </select>
+      </div>
+      <p class="hint">两个都填了也能随时切，缓存按服务分开存。<b>如果你的 Gemini 是中转站：</b>看它给的是哪种格式 —— OpenAI 格式（<code>/v1/chat/completions</code>）就选下面「OpenAI 兼容」；Gemini 原生格式就选这一栏，把接口地址改成中转站给的那个。</p>
+    </div>
+
+    <div id="group-gemini">
+      <div class="field">
+        <label for="apiKey">Gemini API Key</label>
+        <div class="row">
+          <input id="apiKey" type="password" placeholder="AIza..." autocomplete="off" spellcheck="false">
+          <button id="toggleKey" class="ghost" type="button">显示</button>
+        </div>
+        <p class="hint">在 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a> 免费申请。</p>
+      </div>
+
+      <div class="field">
+        <label for="geminiBase">Gemini 接口地址</label>
+        <div class="row">
+          <input id="geminiBase" type="text" placeholder="https://generativelanguage.googleapis.com/v1beta" spellcheck="false">
+        </div>
+        <p class="hint">官方就用默认值。中转站给的通常是 <code>https://xxx/v1beta</code> 这种，填进来即可。</p>
+      </div>
+
+      <div class="field">
+        <label for="model">Gemini 模型</label>
+        <div class="row">
+          <select id="model">
+            <option value="gemini-2.5-flash">gemini-2.5-flash（快，够用）</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro（准，慢一些）</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite（最省）</option>
+            <option value="__custom__">自定义…</option>
+          </select>
+          <input id="modelCustom" type="text" placeholder="自定义模型名" hidden>
+        </div>
+      </div>
+    </div>
+
+    <div id="group-openai" hidden>
+      <div class="field">
+        <label for="dsKey">DeepSeek API Key</label>
+        <div class="row">
+          <input id="dsKey" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+          <button id="toggleDsKey" class="ghost" type="button">显示</button>
+        </div>
+        <p class="hint">在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">DeepSeek 开放平台</a> 申请。中文译文更顺，价格也便宜。</p>
+      </div>
+
+      <div class="field">
+        <label for="dsBase">接口地址（Base URL）</label>
+        <div class="row">
+          <input id="dsBase" type="text" placeholder="https://api.deepseek.com" spellcheck="false">
+        </div>
+        <p class="hint">默认 <code>https://api.deepseek.com</code>。换中转或自建网关就改这里——只要兼容 <code>/chat/completions</code> 就能用。</p>
+      </div>
+
+      <div class="field">
+        <label for="dsModel">模型</label>
+        <div class="row">
+          <select id="dsModel">
+            <option value="deepseek-flash">deepseek-flash（V4.1，翻译首选）</option>
+            <option value="deepseek-v4-pro">deepseek-v4-pro（V4 Pro，强但贵约 4 倍）</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash（中转站常给的名字）</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="__custom__">自定义…</option>
+          </select>
+          <input id="dsModelCustom" type="text" placeholder="自定义模型名" hidden>
+        </div>
+        <p class="hint"><b>名字要用 <code>deepseek-flash</code></b>（它指向 V4.1-Flash-1017）。旧的 <code>deepseek-chat</code> 已于 2026-07 停用，
+        别再填。V4 默认开「思考模式」，本扩展在翻译和查词时已自动关掉，只在「AI 细讲」时开启 —— 否则每段都要先想一会儿，慢好几倍。</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="targetLang">翻译成</label>
+      <div class="row">
+        <select id="targetLang">
+          <option>简体中文</option>
+          <option>繁體中文</option>
+          <option>日本語</option>
+          <option>한국어</option>
+          <option>English</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>行为</label>
+      <div class="checks">
+        <label><input type="checkbox" id="autoTranslate"> 打开页面自动翻译</label>
+        <label><input type="checkbox" id="highlightWords"> 高亮生词本里的词</label>
+        <label><input type="checkbox" id="enableSelection"> 划词翻译</label>
+        <label><input type="checkbox" id="enableHover"> 启用悬停查词（按住修饰键）</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="hoverMode">悬停查词</label>
+      <div class="row">
+        <select id="hoverMode">
+          <option value="alt">按住 ⌥ Option 才查（Mac）</option>
+          <option value="ctrl">按住 Ctrl 或 ⌘ 才查</option>
+          <option value="off">关闭悬停查词</option>
+        </select>
+        <span class="hint" style="margin:0">停留 <input id="hoverDelay" type="number" min="120" max="1500" step="10" class="num"> ms</span>
+      </div>
+      <p class="hint">按住修饰键把指针移到单词上才会出卡片，松开就收 —— 正常阅读时不会乱弹。</p>
+    </div>
+
+    <div class="field">
+      <label>高亮单词</label>
+      <div class="row">
+        <select id="hlStyle">
+          <option value="underline">粗下划线</option>
+          <option value="underline-bg">线 + 底</option>
+          <option value="bg">纯背景色</option>
+        </select>
+        <span class="hint" style="margin:0">标记哪几类：</span>
+        <label class="inline"><input type="checkbox" id="hlToday"> 今日单词</label>
+        <label class="inline"><input type="checkbox" id="hlNew"> 生词本</label>
+        <label class="inline"><input type="checkbox" id="hlKnown"> 已学</label>
+      </div>
+      <p class="hint">颜色由类别决定：今日=青绿，生词=琥珀，已学=绿色。点词卡里的「标记已学」会移到已学。</p>
+    </div>
+
+    <div class="field">
+      <label>默认显示</label>
+      <div class="checks">
+        <label><input type="radio" name="mode" value="bilingual" id="modeBilingual"> 双语对照（原文在上，译文在下）</label>
+        <label><input type="radio" name="mode" value="target" id="modeTarget"> 纯译文（藏起原文）</label>
+      </div>
+      <p class="hint">页面里按 <kbd>⌥</kbd>+<kbd>Y</kbd> 随时切换；<kbd>⌥</kbd>+<kbd>T</kbd> 开/关整页翻译；<kbd>⌥</kbd>+<kbd>O</kbd> 智能大纲。想换成别的键，去 <code>chrome://extensions/shortcuts</code>。</p>
+    </div>
+
+    <div class="actions">
+      <button id="save" class="primary">保存</button>
+      <button id="test">测试连接</button>
+      <button id="bench">测速对比</button>
+      <span id="status" class="status"></span>
+    </div>
+  </section>
+
+  <!-- ============ 生词本 ============ -->
+  <section id="tab-words" class="panel">
+    <div class="row space">
+      <input id="search" type="search" placeholder="搜索单词或释义…" class="grow">
+      <button id="exportCsvInline">导出 CSV</button>
+      <button id="clearAll" class="danger">清空</button>
+    </div>
+    <div id="wordList" class="wordlist"></div>
+
+    <h2 class="sec">收藏句子 <span id="sentCount" class="pill">0</span></h2>
+    <p class="hint">划词翻译或卡片里点「☆ 收藏这句」会存到这里，导出时会一起进 NotebookLM 学习包。</p>
+    <div id="sentList" class="wordlist"></div>
+  </section>
+
+  <!-- ============ 导出 ============ -->
+  <section id="tab-export" class="panel">
+    <div class="card">
+      <h2>NotebookLM 学习包</h2>
+      <p class="hint">
+        NotebookLM 没有公开写入 API，最稳的路径是：<b>导出 Markdown → Add source → Upload</b>。
+        文件开头已经写好给它的问题模板，上传后可以直接让它出题、生成 Study Guide 和 Audio Overview。
+        （也可以粘贴进 Google Docs，再从 Drive 添加来源。）
+      </p>
+      <div class="row">
+        <button id="downloadMd" class="primary">下载 Markdown 学习包</button>
+        <button id="copyMd">复制到剪贴板</button>
+        <button id="downloadCsv">导出 CSV（Anki / 欧路）</button>
+      </div>
+      <div class="row space" style="margin-top:12px">
+        <button id="refreshPreview" class="ghost">刷新预览</button>
+        <span class="hint" id="previewMeta"></span>
+      </div>
+      <pre id="preview" class="preview"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="local-config.js"></script>
+<script src="options.js"></script>
+</body>
+</html>
